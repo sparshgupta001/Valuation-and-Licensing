@@ -1,0 +1,1 @@
+"""Skits Strategos application package."""
