@@ -2,6 +2,7 @@
 
 from fastapi import FastAPI
 from sqlalchemy import text
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1 import assessments, claim_charts, competitors, negotiation, patents, valuation
 from app.core.config import Settings, get_settings
@@ -20,6 +21,13 @@ def create_app(settings: Settings | None = None, *, database_url: str | None = N
             connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
     Base.metadata.create_all(bind=engine)
     application = FastAPI(title=active_settings.app_name, version="0.1.0", debug=active_settings.debug)
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PUT", "OPTIONS"],
+        allow_headers=["Content-Type", "Accept"],
+    )
     application.state.settings = active_settings
     application.state.engine = engine
     application.state.session_factory = make_session_factory(engine)
