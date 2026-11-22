@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from app.database.models import Assessment, StepRun
+from app.database.models import Assessment, DocumentRole, StepRun
 from app.database.repositories import get_assessment, list_documents
 from app.ingestion.document_loader import extract_document_text
 from app.schemas.assessment import AssessmentCreate, CommercialInfo
@@ -66,6 +66,8 @@ async def start_assessment(session: Session, assessment_id: str) -> Assessment:
     document_text: list[str] = []
     input_errors: list[str] = []
     for document in list_documents(session, assessment_id):
+        if document.role != DocumentRole.TARGET_PATENT.value:
+            continue
         try:
             document_text.append(extract_document_text(document.filename, document.content_type, document.content))
         except Exception as exc:

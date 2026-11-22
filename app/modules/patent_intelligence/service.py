@@ -1,24 +1,14 @@
-"""Patent profile interface and placeholder implementation."""
+"""Patent profile generation from assessment details and supplied source text."""
 
+from app.modules.patent_intelligence.claim_parser import extract_claims
 from app.schemas.assessment import AssessmentCreate
-from app.schemas.common import EvidenceItem
-from app.schemas.patent import Claim, PatentProfile
+from app.schemas.patent import PatentProfile
 
 
 async def build_patent_profile(assessment: AssessmentCreate, document_text: str = "") -> PatentProfile:
-    """Build a reviewable profile; replace the stub with evidence-grounded extraction."""
+    """Build a profile from supplied details and claims actually found in source text."""
 
-    extracted = bool(document_text.strip())
-    evidence = [EvidenceItem(document_name="uploaded source", passage="TODO: attach page-level extracted evidence.")] if extracted else []
-    claim = Claim(
-        claim_number="1",
-        text="TODO: extract independent claim text from the patent document.",
-        independent=True,
-        limitations=[],
-        confidence=0.0,
-        evidence=[],
-        needs_human_review=True,
-    )
+    claims, extraction_ambiguous = extract_claims(document_text)
     return PatentProfile(
         title=assessment.title,
         application_number=assessment.application_number,
@@ -27,9 +17,9 @@ async def build_patent_profile(assessment: AssessmentCreate, document_text: str 
         jurisdiction=assessment.jurisdiction,
         current_status=assessment.current_status,
         technology_domain=assessment.technology_domain,
-        claims=[claim],
+        claims=claims,
         technical_features=[],
         confidence=0.0,
-        evidence=evidence,
-        needs_human_review=True,
+        evidence=[],
+        needs_human_review=extraction_ambiguous or any(claim.needs_human_review for claim in claims),
     )

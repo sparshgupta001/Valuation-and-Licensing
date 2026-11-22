@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response,
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_session
-from app.database.models import Assessment, Document
+from app.database.models import Assessment, Document, DocumentRole
 from app.database.repositories import list_step_runs
 from app.schemas.assessment import AssessmentCreate, CommercialInfo, ReviewCorrection
 from app.schemas.common import AssessmentStatus, StepStatus
@@ -58,6 +58,7 @@ async def upload_document(
     assessment_id: str,
     request: Request,
     filename: str = Query(min_length=1),
+    role: DocumentRole = Query(default=DocumentRole.TARGET_PATENT),
     session: Session = Depends(get_session),
 ) -> dict[str, object]:
     """Store raw patent document bytes; filename is stripped to its final path part."""
@@ -77,12 +78,18 @@ async def upload_document(
         assessment_id=assessment.id,
         filename=safe_name,
         content_type=request.headers.get("content-type", "application/octet-stream"),
+        role=role.value,
         size_bytes=len(content),
         content=content,
     )
     session.add(document)
     session.commit()
-    return {"document_id": document.id, "filename": document.filename, "size_bytes": document.size_bytes}
+    return {
+        "document_id": document.id,
+        "filename": document.filename,
+        "size_bytes": document.size_bytes,
+        "role": document.role,
+    }
 
 
 @router.post("/{assessment_id}/start")
