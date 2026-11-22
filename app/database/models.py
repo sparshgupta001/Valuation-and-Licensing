@@ -1,6 +1,7 @@
 """SQLAlchemy entities for assessments, documents, workflow steps, and vectors."""
 
 from datetime import datetime, timezone
+from enum import StrEnum
 from typing import Any
 from uuid import uuid4
 
@@ -8,6 +9,14 @@ from sqlalchemy import DateTime, Float, ForeignKey, Integer, JSON, LargeBinary, 
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
+
+
+class DocumentRole(StrEnum):
+    """Classification used to keep patent and evidence documents separate."""
+
+    TARGET_PATENT = "target_patent"
+    PRODUCT_DOCUMENTATION = "product_documentation"
+    REFERENCE_PRIOR_ART = "reference_prior_art"
 
 try:
     from pgvector.sqlalchemy import Vector
@@ -51,6 +60,12 @@ class Document(Base):
     assessment_id: Mapped[str] = mapped_column(ForeignKey("assessments.id", ondelete="CASCADE"), index=True)
     filename: Mapped[str] = mapped_column(String(500))
     content_type: Mapped[str] = mapped_column(String(200))
+    role: Mapped[str] = mapped_column(
+        String(40),
+        default=DocumentRole.TARGET_PATENT.value,
+        server_default=DocumentRole.TARGET_PATENT.value,
+        nullable=False,
+    )
     size_bytes: Mapped[int] = mapped_column(Integer)
     content: Mapped[bytes] = mapped_column(LargeBinary)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)

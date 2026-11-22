@@ -16,6 +16,19 @@ def build_report(
     negotiation = results.negotiation
     competitor_count = len(results.competitors)
     chart_count = sum(len(chart.rows) for chart in results.claim_charts)
+    profile_claims = profile.claims if profile else []
+    parsed_claim_count = len(profile_claims)
+    independent_claims = [claim for claim in profile_claims if claim.independent]
+    dependent_claim_count = parsed_claim_count - len(independent_claims)
+    charted_claim_numbers = {chart.claim_number for chart in results.claim_charts}
+    charted_independent_count = sum(
+        claim.claim_number in charted_claim_numbers for claim in independent_claims
+    )
+    dependent_claim_note = (
+        f"{dependent_claim_count} dependent claim(s) were extracted but are not independently charted in this version."
+        if dependent_claim_count
+        else "No dependent claims were parsed; only independent claims receive charts in this version."
+    )
     missing = list(negotiation.missing_inputs) if negotiation else []
     if valuation:
         missing.extend(method.method for method in valuation.methods if not method.available)
@@ -29,7 +42,19 @@ def build_report(
         ),
         patent_intelligence=ReportSection(
             title="Patent intelligence",
-            summary=(f"Profile includes {len(profile.claims)} claim record(s). Extraction is a placeholder pending document analysis." if profile else "Patent profile is unavailable."),
+            summary=(
+                f"Parsed {parsed_claim_count} claim(s): {len(independent_claims)} independent and "
+                f"{dependent_claim_count} dependent. {charted_independent_count} independent claim(s) "
+                f"charted. {dependent_claim_note} Evidence retrieval and matching are not configured; chart rows are "
+                "provisional and require human review."
+                if profile and parsed_claim_count
+                else "No numbered claims were parsed (0 parsed, 0 independent, 0 dependent; 0 independent "
+                "charts). Review the uploaded patent and extraction output. Evidence retrieval and "
+                "matching are not configured; human review is required."
+                if profile
+                else "Patent profile is unavailable. Claim counts cannot be confirmed, and evidence "
+                "retrieval and matching are not configured."
+            ),
             confidence=profile.confidence if profile else 0.0,
         ),
         competitor_landscape=ReportSection(
@@ -39,7 +64,11 @@ def build_report(
         ),
         claim_charts=ReportSection(
             title="Claim charts",
-            summary=f"{chart_count} provisional limitation row(s); all labels require human review.",
+            summary=(
+                f"{chart_count} provisional limitation row(s) across {charted_independent_count} "
+                "independent claim chart(s). Evidence retrieval and matching are not configured; "
+                "all labels require human review."
+            ),
             confidence=0.0,
         ),
         ip_valuation=ReportSection(
@@ -62,6 +91,6 @@ def build_report(
         ),
         recommendations=ReportSection(
             title="Recommendations",
-            summary=("Risks: source evidence and commercial inputs remain unverified. Next steps: validate patent extraction, add market and royalty evidence, and review each provisional claim chart." + (f" Missing inputs: {', '.join(sorted(set(missing)))}." if missing else "")),
+            summary=("Risks: source evidence and commercial inputs remain unverified. Next steps: validate extracted claims, add market and royalty evidence, and review each provisional claim chart." + (f" Missing inputs: {', '.join(sorted(set(missing)))}." if missing else "")),
         ),
     )

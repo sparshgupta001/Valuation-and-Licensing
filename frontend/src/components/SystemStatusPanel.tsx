@@ -4,9 +4,9 @@ import { CheckCircle2, ChevronDown, CircleDashed, Info, Sparkles } from 'lucide-
 const modules = [
   { name: 'Valuation engine', state: 'Live', live: true, note: 'Deterministic Python calculations: DCF, relief-from-royalty, cost approach, and Monte Carlo.' },
   { name: 'Negotiation corridor', state: 'Partial', live: false, note: 'Royalty corridor math is deterministic when inputs are available; narrative remains a placeholder.' },
-  { name: 'Patent intelligence', state: 'Placeholder', live: false, note: 'Document upload is stored. Patent extraction and claim parsing are not connected yet.' },
+  { name: 'Patent intelligence', state: 'Partial', live: false, note: 'Supported document formats are text-extracted and numbered claims are parsed. Other patent profile fields remain provisional.' },
   { name: 'Competitor intelligence', state: 'Placeholder', live: false, note: 'No company data sources or semantic target ranking are configured.' },
-  { name: 'Claim charts', state: 'Placeholder', live: false, note: 'Rows are provisional and are not evidence-backed claim mappings.' },
+  { name: 'Claim charts', state: 'Partial', live: false, note: 'Independent-claim rows are provisional. Evidence retrieval and matching are not configured; human review is required.' },
 ]
 
 export function SystemStatusPanel() {
@@ -16,7 +16,7 @@ export function SystemStatusPanel() {
       <button className="system-panel-trigger" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
         <span className="system-panel-symbol"><Info size={17} /></span>
         <span className="system-panel-copy"><strong>System status</strong><small>What is live in this demo</small></span>
-        <span className="system-panel-count"><span className="live-dot" /> 1 live · 1 partial · 3 placeholder</span>
+        <span className="system-panel-count"><span className="live-dot" /> 1 live · 3 partial · 1 placeholder</span>
         <ChevronDown size={17} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && <div className="system-panel-list">
