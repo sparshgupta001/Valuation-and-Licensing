@@ -15,6 +15,26 @@ class ClaimAssessment(StrEnum):
     GAP = "GAP"
 
 
+class EvidenceRetrievalStatus(StrEnum):
+    """Per-limitation outcome of semantic evidence discovery."""
+
+    AVAILABLE = "available"
+    NO_RESULTS = "no_results"
+    UNAVAILABLE = "unavailable"
+
+
+class ClaimChartEvidence(EvidenceItem):
+    """Claim-chart citation with its retrieval provenance and similarity score."""
+
+    assessment_id: str | None = None
+    document_id: str | None = None
+    document_role: str | None = None
+    source_locator: str | None = None
+    start_offset: int | None = Field(default=None, ge=0)
+    end_offset: int | None = Field(default=None, ge=0)
+    similarity_score: float | None = Field(default=None, ge=-1.0, le=1.0)
+
+
 class CompetitorTarget(AIOutputMetadata):
     """Potential licensing target with independent commercial evidence."""
 
@@ -43,6 +63,8 @@ class ClaimChartRow(AIOutputMetadata):
     limitation: str
     assessment: ClaimAssessment
     explanation: str
+    evidence: list[ClaimChartEvidence] = Field(default_factory=list)
+    retrieval_status: EvidenceRetrievalStatus = EvidenceRetrievalStatus.UNAVAILABLE
 
 
 class ClaimChart(BaseModel):

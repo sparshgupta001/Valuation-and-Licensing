@@ -3,8 +3,10 @@
 import asyncio
 import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
 
 import sqlalchemy as sa
+import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from fastapi.testclient import TestClient
@@ -15,6 +17,13 @@ from app.database.models import Assessment, Document, DocumentRole
 from app.main import create_app
 from app.schemas.assessment import AssessmentCreate, CommercialInfo
 from app.workflows.assessment_graph import STEP_NAMES, WorkflowOutcome, run_assessment_workflow
+
+
+class FixedEmbeddingProvider:
+    """Deterministic vectors for integration tests without loading a model."""
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        return [[1.0] + [0.0] * 383 for _ in texts]
 
 
 def test_health_endpoint() -> None:
@@ -115,9 +124,13 @@ def test_document_model_defaults_role_for_legacy_python_writes() -> None:
         assert document.role == "target_patent"
 
 
-def test_only_target_patent_documents_feed_claim_extraction() -> None:
+def test_only_target_patent_documents_feed_claim_extraction(monkeypatch) -> None:
     """Product documentation stays independent from patent profile extraction."""
 
+    monkeypatch.setattr(
+        "app.modules.claim_chart.service.LocalEmbeddingProvider",
+        FixedEmbeddingProvider,
+    )
     app = create_app(Settings(), database_url="sqlite://")
     with TestClient(app) as client:
         created = client.post("/api/v1/assessments", json={"title": "A patent", "application_number": "US-filter"})
@@ -142,6 +155,98 @@ def test_only_target_patent_documents_feed_claim_extraction() -> None:
     assert [claim["text"] for claim in results["patent_profile"]["claims"]] == [
         "A patented device comprising a sensor."
     ]
+
+
+def test_claim_charts_retrieve_only_current_assessment_evidence_roles(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.modules.claim_chart.service.LocalEmbeddingProvider",
+        FixedEmbeddingProvider,
+    )
+    app = create_app(Settings(), database_url="sqlite://")
+    with TestClient(app) as client:
+        current = client.post(
+            "/api/v1/assessments",
+            json={"title": "Current patent", "application_number": "US-current"},
+        ).json()["assessment_id"]
+        other = client.post(
+            "/api/v1/assessments",
+            json={"title": "Other assessment", "application_number": "US-other"},
+        ).json()["assessment_id"]
+
+        uploads = [
+            (current, "patent.txt", "target_patent", "Claims\n1. A device comprising a sensor; and a controller."),
+            (current, "product.txt", "product_documentation", "A product has a sensor and controller."),
+            (current, "prior.txt", "reference_prior_art", "A reference describes a sensor."),
+            (other, "foreign.txt", "product_documentation", "Foreign assessment-only content."),
+        ]
+        for assessment_id, filename, role, text_body in uploads:
+            uploaded = client.post(
+                f"/api/v1/assessments/{assessment_id}/documents",
+                params={"filename": filename, "role": role},
+                content=text_body.encode(),
+                headers={"content-type": "text/plain"},
+            )
+            assert uploaded.status_code == 201
+
+        started = client.post(f"/api/v1/assessments/{current}/start")
+        assert started.status_code == 200
+        results = client.get(f"/api/v1/assessments/{current}/results").json()
+
+    assert [chart["claim_number"] for chart in results["claim_charts"]] == ["1"]
+    rows = results["claim_charts"][0]["rows"]
+    assert len(rows) == 2
+    assert all(row["assessment"] == "GAP" for row in rows)
+    assert all(row["confidence"] == 0.0 and row["needs_human_review"] for row in rows)
+    assert all(row["retrieval_status"] == "available" for row in rows)
+    evidence = [item for row in rows for item in row["evidence"]]
+    assert {item["document_name"] for item in evidence} == {"product.txt", "prior.txt"}
+    assert all(item["assessment_id"] == current for item in evidence)
+    assert all(item["document_role"] in {"product_documentation", "reference_prior_art"} for item in evidence)
+    assert all(item["passage"] in {"A product has a sensor and controller.", "A reference describes a sensor."} for item in evidence)
+    assert all(item["similarity_score"] == 1.0 for item in evidence)
+
+
+def test_ordinary_and_langgraph_workflows_pass_evidence_documents(monkeypatch) -> None:
+    from app.workflows import assessment_graph
+
+    calls: list[tuple[str, object]] = []
+    evidence_documents = [SimpleNamespace(assessment_id="workflow-1", role="product_documentation")]
+
+    async def record_chart_call(profile, *, assessment_id, evidence_documents):
+        calls.append((assessment_id, evidence_documents))
+        return []
+
+    monkeypatch.setattr(assessment_graph, "build_claim_charts", record_chart_call)
+    assessment = AssessmentCreate(title="Workflow patent", application_number="US-workflow")
+    commercial_info = CommercialInfo()
+    patent_text = "Claims\n1. A device comprising a sensor."
+
+    async def exercise_ordinary_workflow() -> None:
+        await assessment_graph.run_assessment_workflow(
+            "workflow-1",
+            assessment,
+            commercial_info,
+            patent_text=patent_text,
+            evidence_documents=evidence_documents,
+        )
+
+    asyncio.run(exercise_ordinary_workflow())
+    assert calls == [("workflow-1", evidence_documents)]
+
+    pytest.importorskip("langgraph.graph")
+    graph = assessment_graph.build_langgraph()
+
+    async def exercise_langgraph() -> None:
+        await graph.ainvoke({
+            "assessment_id": "workflow-1",
+            "assessment": assessment,
+            "commercial_info": commercial_info,
+            "patent_text": patent_text,
+            "evidence_documents": evidence_documents,
+        })
+
+    asyncio.run(exercise_langgraph())
+    assert calls == [("workflow-1", evidence_documents), ("workflow-1", evidence_documents)]
 
 
 def test_document_role_migration_preserves_existing_data_and_downgrades() -> None:

@@ -45,6 +45,7 @@ class AssessmentGraphState(TypedDict, total=False):
     assessment: AssessmentCreate
     commercial_info: CommercialInfo
     patent_text: str
+    evidence_documents: list[Any]
     patent_profile: Any
     competitors: Any
     claim_charts: Any
@@ -70,6 +71,7 @@ async def run_assessment_workflow(
     commercial_info: CommercialInfo,
     *,
     patent_text: str = "",
+    evidence_documents: list[Any] | None = None,
 ) -> WorkflowOutcome:
     """Execute Patent Intelligence, parallel branches, dependent steps, and review."""
 
@@ -109,7 +111,14 @@ async def run_assessment_workflow(
         competitors, charts = [], []
     else:
         competitor_task = run_step("competitor_intelligence", lambda: find_competitor_targets(profile))
-        chart_task = run_step("claim_chart", lambda: build_claim_charts(profile))
+        chart_task = run_step(
+            "claim_chart",
+            lambda: build_claim_charts(
+                profile,
+                assessment_id=assessment_id,
+                evidence_documents=evidence_documents or [],
+            ),
+        )
         valuation_task = run_step("valuation", lambda: _run_valuation(assessment_id, commercial_info))
         competitors, charts, valuation = await asyncio.gather(competitor_task, chart_task, valuation_task)
     if profile is None:
@@ -184,7 +193,11 @@ def build_langgraph():
         """Build reviewable claim chart rows."""
 
         profile = state.get("patent_profile")
-        output = await build_claim_charts(profile) if profile else []
+        output = await build_claim_charts(
+            profile,
+            assessment_id=state["assessment_id"],
+            evidence_documents=state.get("evidence_documents", []),
+        ) if profile else []
         return {"claim_charts": output, "step_statuses": {"claim_chart": StepState.COMPLETED.value}}
 
     async def valuation_node(state: AssessmentGraphState) -> dict[str, Any]:
@@ -219,16 +232,16 @@ def build_langgraph():
     builder.add_node("patent_intelligence", patent_node)
     builder.add_node("competitor_intelligence", competitor_node)
     builder.add_node("claim_chart", chart_node)
-    builder.add_node("valuation", valuation_node)
-    builder.add_node("negotiation", negotiation_node)
+    builder.add_node("valuation_step", valuation_node)
+    builder.add_node("negotiation_step", negotiation_node)
     builder.add_node("report_builder", report_node)
     builder.add_node("human_review_checkpoint", review_node)
     builder.add_edge(START, "patent_intelligence")
     builder.add_edge("patent_intelligence", "competitor_intelligence")
     builder.add_edge("patent_intelligence", "claim_chart")
-    builder.add_edge("patent_intelligence", "valuation")
-    builder.add_edge(["competitor_intelligence", "valuation"], "negotiation")
-    builder.add_edge(["negotiation", "claim_chart"], "report_builder")
+    builder.add_edge("patent_intelligence", "valuation_step")
+    builder.add_edge(["competitor_intelligence", "valuation_step"], "negotiation_step")
+    builder.add_edge(["negotiation_step", "claim_chart"], "report_builder")
     builder.add_edge("report_builder", "human_review_checkpoint")
     builder.add_edge("human_review_checkpoint", END)
     return builder.compile()
