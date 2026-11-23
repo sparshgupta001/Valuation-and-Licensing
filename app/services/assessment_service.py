@@ -63,9 +63,10 @@ async def start_assessment(session: Session, assessment_id: str) -> Assessment:
 
     screen_one = AssessmentCreate.model_validate(assessment.input_data)
     commercial = CommercialInfo.model_validate(assessment.commercial_info or {})
+    documents = list_documents(session, assessment_id)
     document_text: list[str] = []
     input_errors: list[str] = []
-    for document in list_documents(session, assessment_id):
+    for document in documents:
         if document.role != DocumentRole.TARGET_PATENT.value:
             continue
         try:
@@ -78,6 +79,14 @@ async def start_assessment(session: Session, assessment_id: str) -> Assessment:
         screen_one,
         commercial,
         patent_text="\n\n".join(document_text),
+        evidence_documents=[
+            document
+            for document in documents
+            if document.role in {
+                DocumentRole.PRODUCT_DOCUMENTATION.value,
+                DocumentRole.REFERENCE_PRIOR_ART.value,
+            }
+        ],
     )
     result = outcome["results"]
     result.errors.extend(input_errors)

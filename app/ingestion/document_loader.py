@@ -2,7 +2,8 @@
 
 from pathlib import PurePath
 
-from app.ingestion.pdf_parser import extract_pdf_text
+from app.ingestion.extracted_document import ExtractedTextSegment
+from app.ingestion.pdf_parser import extract_pdf_pages, extract_pdf_text
 
 
 def extract_document_text(filename: str, content_type: str, content: bytes) -> str:
@@ -22,4 +23,41 @@ def extract_document_text(filename: str, content_type: str, content: bytes) -> s
         return "\n".join(paragraph.text for paragraph in DocxDocument(io.BytesIO(content)).paragraphs)
     if suffix in {".txt", ".json", ".xml", ".html"} or content_type.startswith("text/"):
         return content.decode("utf-8", errors="replace")
+    raise ValueError(f"Unsupported document type for '{filename}'.")
+
+
+def extract_document_segments(
+    filename: str,
+    content_type: str,
+    content: bytes,
+) -> list[ExtractedTextSegment]:
+    """Extract source-locatable text without changing the legacy string API."""
+
+    if not content:
+        return []
+
+    suffix = PurePath(filename).suffix.lower()
+    if suffix == ".pdf" or content_type == "application/pdf":
+        return extract_pdf_pages(content)
+    if suffix == ".docx" or "wordprocessingml" in content_type:
+        try:
+            from docx import Document as DocxDocument
+        except ImportError as exc:
+            raise RuntimeError("Install python-docx to parse DOCX files.") from exc
+        import io
+
+        document = DocxDocument(io.BytesIO(content))
+        return [
+            ExtractedTextSegment(
+                text=paragraph.text,
+                source_locator=f"paragraph:{index}",
+                page_number=None,
+            )
+            for index, paragraph in enumerate(document.paragraphs)
+        ]
+    if suffix in {".txt", ".json", ".xml", ".html"} or content_type.startswith("text/"):
+        text = content.decode("utf-8", errors="replace")
+        if not text:
+            return []
+        return [ExtractedTextSegment(text=text, source_locator="text", page_number=None)]
     raise ValueError(f"Unsupported document type for '{filename}'.")
